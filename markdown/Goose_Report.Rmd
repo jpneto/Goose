@@ -1,0 +1,354 @@
+---
+title: "Goose"
+author: "João Neto"
+date: "January 2016"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    fig_width: 6
+    fig_height: 6
+---
+
+The Data
+===========
+
+```{r}
+load(file="results40k.Rda")
+```
+
+Each row of this table is a summary of 40.000 simulations of a given game. We tested three historical games, the Game of Goose, the Game of the Universe, and the Game of Navy. Also, we played an abstract version with 63 spaces but with no special rules, for comparising purposes (in a sense, it is our control group). 
+
+```{r}
+table(results$game)  # number of rows per game type
+```
+
+All games follow the rule stating that no space contains more than one player and if a player lands over another, they must switch places.
+
+The table has many columns:
+
+```{r}
+head(results,3)
+```
+
+The first columns state the game type and the number of players (from three to eight). Then, there is a summary of the histogram over the number of turns needed to end each game. Min is the minimum turns taken to end a game; `p2.5` is the 2.5 percentil, the mean, the 97.5 percentil and the maximum number of turns. The next two columns are the mean and standard deviation of a log-normal fit to that histogram.
+
+The `persist-i` columns shows the percentage of games where the winner was `i` turns ahead just before winning. So, say, `persist3` states the percentage games where the winner was also ahead for the last `3` game turns.
+
+THe `winner-i` columns state how many games (in percentage) were won by player `i`.
+
+The `percentil` is a measure of how much random the previous percentages are. This is done by comparing with the results of a fair die (with the same number of sides as there are players). If the result is high (say, above .95) this says that the result is far from random. This means that some players have an initial advantage.
+
+Finally, columns `ahead-i` show the percentage of games with `i` players ahead during the game. The higher the number of players the better concerning the dramatic purposes of any board game.
+
+Data Exploration
+============
+
+```{r, message=FALSE, warnings=FALSE}
+library(dplyr)
+
+games <- tbl_df(results) %>% arrange(game, players)
+games
+# as.data.frame(games) # show all
+```
+
+Select group winnings by game type of number of players:
+
+```{r}
+grp.players <- games %>% group_by(game,players) 
+winnings <- summarise(grp.players, mean.win1=mean(winner1),
+                                   mean.win2=mean(winner2),
+                                   mean.win3=mean(winner3),
+                                   mean.win4=mean(winner4),
+                                   mean.win5=mean(winner5),
+                                   mean.win6=mean(winner6),
+                                   mean.win7=mean(winner7),
+                                   mean.win8=mean(winner8))
+winnings
+```
+
+Winner Variation
+============
+
+The next plot shows how much variation exists between the percentage of wins from the different players. Less variation is better, meaning there are smaller differences between the players. A zero variation would mean that all players won the same amount of games. Higher values indicate that some players have a statistical advantage over others, since they win more games than they should.
+
+```{r}
+color_name <- c("abstract", "goose",    "navy",       "universe")
+color_grid <- c("black",    "darkred",  "turquoise1", "blue")
+
+color_game <- function(game) {
+  color_grid[which(color_name==game)]
+}
+```
+
+```{r}
+winnings_p <- 
+  group_by(winnings,game,players) %>%
+  mutate(sd=sd(c(mean.win1,mean.win2,mean.win3,mean.win4,mean.win5),na.rm=TRUE))
+
+plot(winnings_p$players, winnings_p$sd, pch=rep(15:18,each=6), cex=1.5,
+     col=sapply(winnings$game, color_game),
+     main="Win criteria per variant",
+     xlab="Number of Players", ylab="Win Value")
+legend("topright", color_name, col=color_grid, pch=15:18, cex=1.2)
+```
+
+We can see that the game of Goose achieve the best results for all number of players. The game of Navy achieves similar results with at least five players. The other two games produce much larger variation.
+
+All historical games show a decrease of variation with the increase of the number of players, which means higher levels of drama with more players. This does not happen in the abstract version. This indicates that the special rules characteristic of these game do play a relevant role in adding drama to the overall gaming experience.
+
+The appears to be a curious inflexion point at seven players. Adding an eigth player seems to increase the variation if only slightly for the game of Goose and Navy. This might be a consequence of the board size. Both games have 63 spaces and possibly the game becomes too crowded. That inflection does not happen for the game of Universe, which is larger, it consists of 70 spaces. We speculate that its inflection point -- if indeed, this inflection is not just a product of statistical noise -- will occur by adding a ninth of tenth player.
+
+Higher variation means that some players are winning more than others. Let's vizualise which players are getting more wins:
+
+```{r, fig.width=12, fig.height=12}
+x_labels <- c("1st","2nd","3rd","4th","5th","6th","7th","8th")
+par(mfrow=c(3,2))
+
+for(n_players in 3:8) {
+  winners <- filter(winnings_p, players==n_players)[,c(1,3:(n_players+2))] 
+  plot(1:n_players, winners[1,2:(n_players+1)], type="b", 
+       ylim=c(min(winners[,2:(n_players+1)]),max(winners[,2:(n_players+1)])),
+       xlab="Player Order", ylab="Win %", xaxt="n", 
+       main=paste("Win Percentage for", n_players, "players"),
+       col=color_grid[1], lwd=2, pch=15)
+  abline(h=1/n_players, lty=2)
+  axis(1, at=1:n_players, labels=x_labels[1:n_players])
+  for(i in 2:4)
+    lines(1:n_players, winners[i,2:(n_players+1)], col=color_grid[i], 
+          lwd=2, pch=14+i, type="b")
+  if (n_players==3)
+    legend(1.8,.332, color_name, col=color_grid, lwd=2, pch=15:18, cex=0.7)
+  
+  # draw datapoints
+  #   pts <- games %>% filter(players==n_players) %>% select(c(1,15:(14+n_players)))  
+  #   for(j in 1:n_players) {
+  #      points(rep(j+0.1, 6), t(pts[ 1: 6,1+j]), col=color_grid[1], pch=15)  # abstract
+  #      points(rep(j+0.1,12), t(pts[ 7:18,1+j]), col=color_grid[2], pch=16)  # goose
+  #      points(rep(j+0.1,12), t(pts[19:30,1+j]), col=color_grid[3], pch=17)  # navy
+  #      points(rep(j+0.1,12), t(pts[31:42,1+j]), col=color_grid[4], pch=18)  # universe
+  #   }
+}
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,1))
+```
+
+Looking at the diagrams, it is striking the constant advantage of the second player, despite the number of players or which game variation is being played. This advantage then starts to fade with the following players. Also surprinsing is the disadvantage of the first player that only achieve mean performance with seven and eigth players. Perhaps not so surprinsing is the disadvantage of the last players, especially in game with six players or more.
+
+These diagrams confirm the better results of the Game of Goose, since its lines are closer to the theoretical best result -- the dotted black line where all players would lie if all had the same winning percentage. Also, the worst results from the game of Universe and the abstract variant can be seen here too, since their slopes are more steep, giving larger advantages for the second and third players -- and thus making the games less fair to play.
+
+To confirm the result of second player advantage, we tested the numbers against an uniform distribution of values, to see if the difference between the theoretical value and the estimated one were indeed significant. For each pair variant/number of players, we distributed 40000 games to a random winner (using an uniform distribution) and found the ratio between the player with more wins against the player with less wins. These ratios simulate the outcomes of a totally fair game. We repeated this procedure 2000 times for stability and variance reduction. Then, given these values, we found at which percentil our result -- the one we achieved by playing the respective historical game -- fitted among these 2000 fair outcomes. A value near percentil 100 meant that the result is very significant non uniform (i.e., some player(s) has advantage over others). A percentil near 80 or less would mean the result could be produced by a fair game. 
+
+The next box plot shows the computed percentils:
+
+```{r}
+percs <- games %>% select(game, players, percentil)
+boxplot(results$percentil*100 ~ results$game, pch=19, cex=.5, range=0.1,
+        ylab="Percentile", xlab="Variant", main="Testing the Uniformity Hypothesis")
+abline(h=90, lty=2)
+```
+
+There are 36 simulation of the abstract variant, and 72 for each of the historical games. The points seen in the plot are outliers that could be interpreted as evidence for the uniform hypothesis (except for the game of Universe that does not have a single outlier). However, the great majority of the results were placed percentil 100 or at very high 90s, which is a strong evidence for the non-uniformity hypothesis. This data, together with the previous plots, present a convincing argument for the second player advantage at all these four variants.
+
+Winner Persistence
+=============
+
+The next statistic is also a way to measure drama. A game is more dramatic if the player that wins did achieve the lead only a few turns before the end of the game. 
+
+In these simulations we measured the lead up to five turns before the end of the game.
+
+```{r}
+persists <- summarise(grp.players, 
+                      mean.per1=mean(persist1),
+                      mean.per2=mean(persist2),
+                      mean.per3=mean(persist3),
+                      mean.per4=mean(persist4),
+                      mean.per5=mean(persist5))
+persists
+```
+
+
+```{r, fig.width=12, fig.height=12}
+par(mfrow=c(3,2))
+
+for(n_players in 3:8) {
+  
+  persists_nPlayer <- persists %>% filter(players==n_players)
+  
+  plot(1:5, persists_nPlayer[1,3:7], type="b", 
+       ylim=c(min(persists_nPlayer[,3:7]),
+              max(persists_nPlayer[,3:7])),
+       xlab="Turns ahead before win", ylab="Game %", 
+       main=paste("Lead persistence for", n_players, "players"),
+       col=color_grid[1], lwd=2, pch=15)
+  for(i in 2:4)
+    lines(1:5, persists_nPlayer[i,3:7], col=color_grid[i], 
+          lwd=2, pch=14+i, type="b")
+  if (n_players==3)
+    legend("topright", color_name, col=color_grid, lwd=2, pch=15:18, cex=0.85)
+}
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,1))
+```
+
+```{r, echo=FALSE, eval=FALSE}
+plot(persists$players, t(persists[,3]), pch=rep(15:18,each=6), 
+     col=sapply(persists$game, color_game),
+     main="Winner ahead for 1 turn",
+     xlab="number of players", ylab="percentage")
+legend("bottomright", color_name, col=color_grid, pch=15:18)
+```   
+
+The abstract variant is the most dramatic in this criteria. Even for just three players, the games where the winner just got his lead in the last turn is more than $60\%$. However this difference get smaller and smaller has we add more players. With six players the distributions for all four games are quite similar. Comparing the three historical games, the Game of Goose is very slightly better than the other two, but this difference might not be significant, despite the number of simulations performed for this work.  
+
+```{r, echo=FALSE, eval=FALSE}
+mean(apply(persists[,3:7],1,sum)[ 1: 6])
+mean(apply(persists[,3:7],1,sum)[ 7:12])
+mean(apply(persists[,3:7],1,sum)[13:18])
+mean(apply(persists[,3:7],1,sum)[19:24])
+```
+
+Among all games played, the abstract version had $84\%$ of games with up to five turns ahead for the winner, the Goose with $86\%$, the Navy  with $84\%$ and the Universe with $74\%$. This means that all variants are quite dramatic in this sense, they do not frequently produce matches where the winner is known many turns before the endgame. Only one sixth to one forth of the games the lead is kept. Curiously, if these percentages were more extreme, the drama would also be hard to keep, since players would guess that the current lead would not win. As it is, the players still have plenty of room for doubt, which is a good feature for this type of race game.
+
+Number of Players Ahead
+===============
+
+This section deals with another criteria for drama: the number of different players that were ahead during a game. The argument is that a game is more dramatic the more players are able to take the lead. A game where the first player leading maintains her lead during the entire match is less interesting -- and less dramatic -- than one where there are many players able to be ahead of the others during the match.
+
+```{r}
+aheads <- summarise(grp.players, 
+                    mean.ahead1=mean(ahead1),
+                    mean.ahead2=mean(ahead2),
+                    mean.ahead3=mean(ahead3),
+                    mean.ahead4=mean(ahead4),
+                    mean.ahead5=mean(ahead5),
+                    mean.ahead6=mean(ahead6),
+                    mean.ahead7=mean(ahead7),
+                    mean.ahead8=mean(ahead8))
+aheads
+```
+
+Let's make the respective plots:
+
+```{r, fig.width=12, fig.height=12}
+par(mfrow=c(3,2))
+
+for(n_players in 3:8) {
+  
+  aheads_nPlayer <- aheads %>% filter(players==n_players)
+  
+  plot(1:n_players, aheads_nPlayer[1,3:(n_players+2)], type="b", 
+       ylim=c(min(aheads_nPlayer[,3:(n_players+2)], na.rm=TRUE),
+              max(aheads_nPlayer[,3:(n_players+2)], na.rm=TRUE)),
+       xlab="Number of players ahead during match", ylab="Game %", xaxt="n", 
+       main=paste("Players ahead for", n_players, "players"),
+       col=color_grid[1], lwd=2, pch=15)
+  axis(1, at=1:n_players, labels=1:n_players)
+  for(i in 2:4)
+    lines(1:n_players, aheads_nPlayer[i,3:(n_players+2)], col=color_grid[i], 
+          lwd=2, pch=14+i, type="b")
+  if (n_players==3)
+    legend("topleft", color_name, col=color_grid, lwd=2, pch=15:18, cex=.75)
+}
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,1))
+```
+
+The amount of games where there is only one lead, for all variants, is quite small, less than $5\%$ of the games are like that. The data shows that in the typical game, with at least four players, about half the players take the lead. This is a good balance. A game where, on an average match, all the players are ahead might feel a bit too chaotic (and indeed, there are very few of those). But a game where about half the number of players take the lead provides, in our perspective, a good gaming experience.
+
+Comparing games, the game of Universe is the less dramatic for three or four players, but behaves quite similarly with the rest if the players are five or more. For many players, the Game of Goose and the Game of Navy are the ones that allow more lead changing events.
+
+Match size
+=========
+
+Another feature, not necessarily related to drama, but important in gaming experience, is the average lengths of matches. If too short or too long matches are frequent, the game might become dull. However, if the average length is usually socially admissible, the fact of having rare matches ending too soon or taking too long, might be interpreted as a game bonus.
+
+```{r}
+n_games <- 12500
+```
+
+This histogram shows the distribution of game lengths for 12500 games of Goose:
+
+```{r, fig.width=12}
+source('goose_functions.R') 
+
+game <-  list( players = 4,
+               size    = 63,                                     
+               geese   = c(5,9,14,18,23,27,32,36,41,45,50,54,59),
+               jump    = c( 6, 42, 58),                          
+                into   = c(12, 30,  0),                           
+               waits   = c(19, 31,  52),                         
+                amount = c( 2, Inf, Inf) )                        
+
+res     <- replicate(n_games, play(game)) 
+report  <- present_results(game, res, show_fit=FALSE)
+```
+
+We notice an assymetric distribution with an heavy tail to the right. If we do not consider the distribtion tail, i.e., rare matches that take too long due to consecutives traps and captures, the distribution seem quite close to a log-normal. Here's the best log-normal fit for the previous histogram:
+
+```{r, fig.width=12}
+report  <- present_results(game, res, show_fit=TRUE)
+```
+
+This fit works nicely to all the historical variants as well to the abstract variant.
+
+The relationship with the log-normal is just an empirical statement. We do not know a formal argument that relates this well-known distribution to the number of turns necessary to end a match. 
+
+We kept all fits from the previous simulations are are able to plot them together:
+
+```{r, fig.width=12}
+log_norm <- summarise(grp.players, 
+                      mean.logn.mean=mean(lnorm.m),
+                      mean.logn.sd  =mean(lnorm.s))
+log_norm
+```
+
+The mean and the standard variation:
+
+```{r, fig.width=12}
+logs_game <- log_norm %>% filter(game==color_name[1])
+
+par(mfrow=c(1,2))
+plot(3:8, t(logs_game[,3]), type="b", 
+     ylim=c(min(log_norm[,3], na.rm=TRUE),
+            max(log_norm[,3], na.rm=TRUE)),
+     xlab="Number of players", ylab="Mean", xaxt="n", 
+     main="Location",
+     col=color_grid[1], lwd=2, pch=15)
+axis(1, at=1:n_players, labels=1:n_players)
+for(i in 2:4) {
+  logs_game <- log_norm %>% filter(game==color_name[i])
+  lines(3:8, t(logs_game[,3]), col=color_grid[i], lwd=2, pch=14+i, type="b")
+}  
+legend("topleft", color_name, col=color_grid, lwd=2, pch=15:18, cex=.9)
+
+logs_game <- log_norm %>% filter(game==color_name[1])
+
+plot(3:8, t(logs_game[,4]), type="b", 
+     ylim=c(min(log_norm[,4], na.rm=TRUE),
+            max(log_norm[,4], na.rm=TRUE)),
+     xlab="Number of players", ylab="Standard Deviation", xaxt="n", 
+     main="Scale",
+     col=color_grid[1], lwd=2, pch=15)
+axis(1, at=1:n_players, labels=1:n_players)
+for(i in 2:4) {
+  logs_game <- log_norm %>% filter(game==color_name[i])
+  lines(3:8, t(logs_game[,4]), col=color_grid[i], lwd=2, pch=14+i, type="b")
+}  
+#legend("topright", color_name, col=color_grid, lwd=2, pch=15:18, cex=.9)
+
+```
+
+```{r, echo=FALSE}
+par(mfrow=c(1,1))
+```
+
+The mean trend suggests that games with more players tend to take longer to finish, which is to be expected. The standard deviation trend, however, suggests that the expected variation of the number of turns tends to be less as the number of players increase, which is not an obvious consequence, even if this trend tends to stabilize at a certain amount of players, even if its exact number depends on the variant.
+
+Both trends are well-behaved. This is evidence that it might be possible to have a quick estimation of the estimated number of turns for different number of players. Also, all variants, despite having quite different parameters regarding their special rulings (e.g., where are the traps, the goose spaces), share a similar behavior concerning the log-normals fits of their number of turns' histograms. This is also valuable information to predict the behavior with a large number of players.
